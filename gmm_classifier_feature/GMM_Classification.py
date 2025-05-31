@@ -4,7 +4,7 @@ import joblib
 from config import CreateDataset, Model
 
 
-def train_gmm_models(data_x, data_y, n_components=5, covariance_type='full', max_iter=200, random_state=42):
+def train_gmm_models(data_x, data_y, n_components=7, covariance_type='diag', max_iter=400, random_state=42, init_params = 'kmeans'):
     """
     각 장르별로 GMM 모델을 학습하고 딕셔너리 형태로 반환한다.
     """
@@ -21,12 +21,11 @@ def train_gmm_models(data_x, data_y, n_components=5, covariance_type='full', max
             print(f"경고: '{genre}' 장르의 데이터가 없습니다. 건너뜁니다.")
             continue
 
-        print(f"  '{genre}' 장르 데이터 형태: {genre_data_x.shape}")
-
         gmm = GaussianMixture(n_components=n_components,
                               covariance_type=covariance_type,
                               random_state=random_state,
-                              max_iter=max_iter)
+                              max_iter=max_iter,
+                              init_params=init_params)
 
         gmm.fit(genre_data_x)
         trained_gmms[genre] = gmm
