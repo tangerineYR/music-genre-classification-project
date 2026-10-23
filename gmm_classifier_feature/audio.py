@@ -25,7 +25,7 @@ def load_audio(path):
 def sample_audio(y, sr=TARGET_SAMPLE_RATE):
     """Strongest detected onset; last 60s if needed; start at zero without onsets.
 
-    Short audio is right-padded with silence (portfolio edge-case policy).
+    Short audio is right-padded with silence.
     Returns the sample and its start offset in samples.
     """
     if sr != TARGET_SAMPLE_RATE or np.ndim(y) != 1 or not len(y) or not np.isfinite(y).all():

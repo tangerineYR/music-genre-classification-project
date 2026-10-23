@@ -1,4 +1,4 @@
-"""Historical feature/source choices; portfolio execution defaults (see docs/lineage.md)."""
+"""Historical feature/source choices and execution defaults (see docs/lineage.md)."""
 TARGET_SAMPLE_RATE = 16000
 SAMPLE_SECONDS = 60
 FRAME_SIZE = 2048
