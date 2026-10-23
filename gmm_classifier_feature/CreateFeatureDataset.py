@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 from .audio import audio_files, load_audio
 from .config import (FEATURE_SOURCES, FEATURE_NAMES, TARGET_SAMPLE_RATE,
-                     SAMPLE_SECONDS, SCHEMA_VERSION)
+                     SAMPLE_SECONDS, SCHEMA_VERSION, RANDOM_STATE)
 from .Utilities import extract_feature
 
 
@@ -24,7 +24,7 @@ def extract_song_id(path):
     return '_'.join(parts[:3])
 
 
-def select_sources(root, baseline_source):
+def select_sources(root, baseline_source, variant=None):
     """Exact source token prefix, then lexical relative-path priority for variants."""
     songs = {}
     required = set(FEATURE_SOURCES.values()) | {baseline_source}
@@ -35,11 +35,35 @@ def select_sources(root, baseline_source):
         for source in sorted(required):
             tokens = source.split('_')
             if source_tokens[:len(tokens)] == tokens:
+                if variant is not None and source.startswith('Cover_'):
+                    if source_tokens[len(tokens):] != [variant]:
+                        continue
                 song.setdefault(source, path)
     return songs
 
 
-def build_features(input_dir, output_dir, baseline_source, seconds=60):
+GENRES = ('Ballade', 'Dance', 'Hiphop', 'RnB', 'Rock', 'Trot')
+
+
+def select_subset(songs, baseline_source, songs_per_genre):
+    """Select complete source sets before audio loading; fixed seed, six genres."""
+    if songs_per_genre < 1:
+        raise ValueError('songs_per_genre must be positive')
+    required = set(FEATURE_SOURCES.values()) | {baseline_source}
+    rng = np.random.default_rng(RANDOM_STATE)
+    chosen = {}
+    for genre in GENRES:
+        candidates = sorted(song for song, sources in songs.items()
+                            if song.split('_')[1] == genre and required <= sources.keys())
+        if len(candidates) < songs_per_genre:
+            raise ValueError(f'{genre}: need {songs_per_genre} complete songs, found {len(candidates)}')
+        for song in rng.choice(candidates, songs_per_genre, replace=False):
+            chosen[str(song)] = songs[song]
+    return dict(sorted(chosen.items()))
+
+
+def build_features(input_dir, output_dir, baseline_source, seconds=60,
+                   variant=None, songs_per_genre=None):
     if seconds not in (5, SAMPLE_SECONDS):
         raise ValueError('Feature duration must be 5 or 60 seconds')
     root, output = Path(input_dir), Path(output_dir)
@@ -48,7 +72,10 @@ def build_features(input_dir, output_dir, baseline_source, seconds=60):
         raise ValueError('Feature outputs already exist; use a fresh output directory')
     if not baseline_source or any(not token for token in baseline_source.split('_')):
         raise ValueError('Baseline source must be a nonempty filename token prefix')
-    selected = select_sources(root, baseline_source)
+    selected = select_sources(root, baseline_source, variant)
+    discovered_count = len(selected)
+    if songs_per_genre is not None:
+        selected = select_subset(selected, baseline_source, songs_per_genre)
     rows = {'baseline': [], 'feature_aware': []}
     labels, ids, records, failures = [], [], [], []
     required = set(FEATURE_SOURCES.values()) | {baseline_source}
@@ -90,11 +117,15 @@ def build_features(input_dir, output_dir, baseline_source, seconds=60):
     metadata = dict(schema=SCHEMA_VERSION, sample_rate=TARGET_SAMPLE_RATE,
                     seconds=seconds, scaled=False, baseline_source=baseline_source,
                     feature_sources=FEATURE_SOURCES,
-                    variant_policy='lexicographically_first_relative_path',
-                    discovered_song_count=len(selected), excluded_song_count=len(failures),
+                    variant_policy='lexicographically_first_relative_path', variant=variant,
+                    songs_per_genre=songs_per_genre, subset_seed=RANDOM_STATE,
+                    selected_song_ids=list(sorted(selected)),
+                    discovered_song_count=discovered_count, excluded_song_count=len(failures),
                     complete_song_count=len(ids),
                     samples=records, excluded=failures)
     (output / 'source_manifest.json').write_text(json.dumps(metadata, indent=2), encoding='utf-8')
+    if songs_per_genre is not None and failures:
+        raise ValueError('Subset extraction failed; see source_manifest.json. No archives written.')
     if not ids:
         raise ValueError('No complete paired samples; see source_manifest.json')
     manifest_hash = file_digest(output / 'source_manifest.json')

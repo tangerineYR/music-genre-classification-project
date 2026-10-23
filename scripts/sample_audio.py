@@ -29,13 +29,13 @@ def main():
         y, sr = load_audio(path)
         sampled, start = sample_audio(y, sr)
         target.parent.mkdir(parents=True, exist_ok=True)
-        sf.write(target, sampled, sr, subtype='FLOAT')
+        sf.write(target, sampled, sr, subtype='PCM_16')
         records.append(dict(input=path.relative_to(source).as_posix(),
                             output=target.relative_to(output).as_posix(),
                             input_sha256=file_digest(path), start_sample=start,
                             input_samples=len(y), padded_samples=max(0, len(sampled)-len(y))))
     (output / 'sampling_manifest.json').write_text(json.dumps(dict(
-        sample_rate=TARGET_SAMPLE_RATE, seconds=SAMPLE_SECONDS,
+        sample_rate=TARGET_SAMPLE_RATE, seconds=SAMPLE_SECONDS, subtype='PCM_16',
         policy='strongest_detected_onset_then_end_fallback', samples=records), indent=2))
     print(f'Sampled {len(records)} files to {output}')
 

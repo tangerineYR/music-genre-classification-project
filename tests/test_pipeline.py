@@ -11,7 +11,7 @@ from sklearn.preprocessing import MinMaxScaler
 from gmm_classifier_feature import audio
 from gmm_classifier_feature.config import FEATURE_SIZES, FEATURE_NAMES, TARGET_SAMPLE_RATE as SR
 from gmm_classifier_feature.Utilities import extract_feature
-from gmm_classifier_feature.CreateFeatureDataset import build_features, select_sources
+from gmm_classifier_feature.CreateFeatureDataset import build_features, select_sources, select_subset, GENRES
 from gmm_classifier_feature.EvaluateModel import evaluate_cv, balanced_indices, load_dataset
 
 
@@ -70,6 +70,29 @@ class FeatureTests(unittest.TestCase):
 
 
 class DatasetTests(unittest.TestCase):
+    def test_org_and_strict_a_variant_subset(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for genre in GENRES:
+                for song in ('00001', '00002', '00003'):
+                    stem = f'Similar_{genre}_{song}'
+                    (root / f'{stem}_Org.wav').touch()
+                    for source in ('Timbre', 'Rhythm', 'Instrument', 'Genre'):
+                        for variant in ('A', 'C'):
+                            (root / f'{stem}_Cover_{source}_{variant}.wav').touch()
+            songs = select_sources(root, 'Org', variant='A')
+            subset = select_subset(songs, 'Org', 2)
+            self.assertEqual(len(subset), 12)
+            self.assertEqual(list(subset), list(select_subset(dict(reversed(list(songs.items()))), 'Org', 2)))
+            self.assertTrue(all(mapping['Org'].name.endswith('_Org.wav') for mapping in subset.values()))
+            self.assertTrue(all(path.name.endswith('_A.wav') for mapping in subset.values()
+                                for source, path in mapping.items() if source.startswith('Cover_')))
+            (root / 'Similar_Rock_00001_Cover_Timbre_A.wav').unlink()
+            songs = select_sources(root, 'Org', variant='A')
+            self.assertNotIn('Cover_Timbre', songs['Similar_Rock_00001'])
+            with self.assertRaisesRegex(ValueError, 'Rock: need 3'):
+                select_subset(songs, 'Org', 3)
+
     def test_deterministic_mapping_and_atomic_failure(self):
         with tempfile.TemporaryDirectory() as tmp:
             root, out = Path(tmp) / 'audio', Path(tmp) / 'features'

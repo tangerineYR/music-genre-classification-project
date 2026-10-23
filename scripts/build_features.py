@@ -11,10 +11,13 @@ def main():
     parser.add_argument('--input', required=True)
     parser.add_argument('--output', required=True)
     parser.add_argument('--baseline-source', required=True,
-                        help='Exact filename source prefix, e.g. Cover_Timbre or Original')
+                        help='Exact filename source prefix, e.g. Org (original-audio baseline)')
     parser.add_argument('--seconds', type=int, choices=(5, 60), default=60)
+    parser.add_argument('--variant', choices=('A', 'B', 'C'), help='Require this exact Cover variant')
+    parser.add_argument('--songs-per-genre', type=int, help='Select this many complete songs per each of six genres before extraction')
     args = parser.parse_args()
-    count, excluded = build_features(args.input, args.output, args.baseline_source, args.seconds)
+    count, excluded = build_features(args.input, args.output, args.baseline_source, args.seconds,
+                                     args.variant, args.songs_per_genre)
     print(f'Built {count} paired songs; excluded {excluded}. See source_manifest.json.')
 
 
