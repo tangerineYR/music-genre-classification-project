@@ -1,114 +1,109 @@
-import os
+"""Build paired, unscaled 96D datasets and record all source selections."""
+import hashlib
+import json
+from pathlib import Path
 import numpy as np
-import sklearn
-import soundfile as sf
-import librosa
-from pydub import AudioSegment
-from Source.Utilities import *
-from config import CreateDataset
-
-DATASET_DIR = CreateDataset.DIRECTORY
-SAMPLING_RATE = CreateDataset.SAMPLING_RATE
-
-def extract_song_id(file_path):
-    """파일명에서 곡 ID 추출 (예: 'Similar_Trot_00610_Cover_Instrument_B.wav' → 'Similar_Trot_00610')"""
-    parts = os.path.basename(file_path).split('_')
-    return '_'.join(parts[:3])  # 첫 3부분 조합 (Similar + 장르 + ID)
+from .audio import audio_files, load_audio
+from .config import (FEATURE_SOURCES, FEATURE_NAMES, TARGET_SAMPLE_RATE,
+                     SAMPLE_SECONDS, SCHEMA_VERSION)
+from .Utilities import extract_feature
 
 
-def robust_audio_load(file_path):
-    """개선된 오디오 로딩 시스템"""
-    try:
-        y, sr = sf.read(file_path)
-    except Exception:
+def file_digest(path):
+    digest = hashlib.sha256()
+    with open(path, 'rb') as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def extract_song_id(path):
+    parts = Path(path).stem.split('_')
+    if len(parts) < 4 or parts[0] != 'Similar' or not parts[2].isdigit():
+        raise ValueError(f'Expected Similar_<genre>_<id>_<source>: {path}')
+    return '_'.join(parts[:3])
+
+
+def select_sources(root, baseline_source):
+    """Exact source token prefix, then lexical relative-path priority for variants."""
+    songs = {}
+    required = set(FEATURE_SOURCES.values()) | {baseline_source}
+    for path in audio_files(root):
+        song_id = extract_song_id(path)
+        source_tokens = Path(path).stem.split('_')[3:]
+        song = songs.setdefault(song_id, {})
+        for source in sorted(required):
+            tokens = source.split('_')
+            if source_tokens[:len(tokens)] == tokens:
+                song.setdefault(source, path)
+    return songs
+
+
+def build_features(input_dir, output_dir, baseline_source, seconds=60):
+    if seconds not in (5, SAMPLE_SECONDS):
+        raise ValueError('Feature duration must be 5 or 60 seconds')
+    root, output = Path(input_dir), Path(output_dir)
+    if any((output / name).exists() for name in
+           ('baseline.npz', 'feature_aware.npz', 'source_manifest.json')):
+        raise ValueError('Feature outputs already exist; use a fresh output directory')
+    if not baseline_source or any(not token for token in baseline_source.split('_')):
+        raise ValueError('Baseline source must be a nonempty filename token prefix')
+    selected = select_sources(root, baseline_source)
+    rows = {'baseline': [], 'feature_aware': []}
+    labels, ids, records, failures = [], [], [], []
+    required = set(FEATURE_SOURCES.values()) | {baseline_source}
+    for song_id, mapping in sorted(selected.items()):
+        missing = sorted(required - mapping.keys())
+        if missing:
+            failures.append(dict(song_id=song_id, error=f'Missing sources: {missing}'))
+            continue
         try:
-            audio = AudioSegment.from_file(file_path)
-            y = np.array(audio.get_array_of_samples(), dtype=np.float32)
-            y /= np.iinfo(audio.array_type).max
-            sr = audio.frame_rate
-        except Exception:
-            raise
-    return y, sr
-
-def process_individual_features(target_features):
-    # 1. 모든 파일 수집 및 그룹화
-    all_files = librosa.util.find_files(DATASET_DIR, recurse=True)
-    
-    # {song_id: {feature: file_path}}
-    song_db = {}
-    for file in all_files:
-        song_id = extract_song_id(file)
-        parts = os.path.basename(file).split('_')
-        feature_type = '_'.join(parts[3:5])  # 'Cover_Instrument', 'Cover_Tempo' 등
-
-        if song_id not in song_db:
-            song_db[song_id] = {}
-        song_db[song_id][feature_type] = file
-    
-    # 디버깅: song_db 샘플 출력
-    print("\n=== song_db 샘플 (최대 3개) ===")
-    for song_id, features in list(song_db.items())[:3]:
-        print(f"  {song_id}: {list(features.keys())}")
-    
-    # 2. 필수 특징 접두사 추출
-    feature_prefixes = [get_feature_prefix(f) for f in target_features]
-    print(f"\n필요한 특징 접두사: {feature_prefixes}")
-    
-    # 3. 모든 특징을 가진 곡 필터링
-    valid_songs = []
-    for song_id, features in song_db.items():
-        if all(prefix in features for prefix in feature_prefixes):
-            valid_songs.append(song_id)
-    
-    print(f"\n유효한 곡 수: {len(valid_songs)}")
-    if len(valid_songs) == 0:
-        raise ValueError("유효한 곡이 없습니다! 파일명 구조를 확인하세요.")
-    
-    # 3. 피처별 데이터 저장소 초기화
-    feature_data = {f: [] for f in target_features}
-    labels = []
-    
-    # 4. 곡별 처리
-    for song_id in valid_songs:
-        genre = song_id.split('_')[1]  # 예: 'Trot'
-        labels.append(genre)
-        
-        # 피처별 추출
-        for feature in target_features:
-            prefix = get_feature_prefix(feature)
-            file_path = song_db[song_id][prefix]
-            
-            try:
-                y, _ = robust_audio_load(file_path)
-                y = y[:SAMPLING_RATE*5] if len(y) >= SAMPLING_RATE*5 else np.pad(y, (0, SAMPLING_RATE*5 - len(y)))
-                
-                # 특징 추출
-                feature_extractor = get_feature_extractor(feature)
-                row = feature_extractor(y)
-                feature_data[feature].append(row)
-                
-            except Exception as e:
-                print(f"[오류] {file_path} 처리 실패: {str(e)}")
-                break
-    
-    # 5. 피처별 저장
-    for feature in target_features:
-        data = np.array(feature_data[feature])
-        scaler = sklearn.preprocessing.MinMaxScaler()
-        data = scaler.fit_transform(data)
-        
-        np.savez(
-            f'FEATURE_{feature.upper()}.npz',
-            x=data,
-            y=np.array(labels),
-            files=np.array(valid_songs)
-        )
-        print(f"✅ FEATURE_{feature.upper()}.npz 저장 완료")
-
-if __name__ == '__main__':
-    target_features = [
-        'spectral_centroid', 'spectral_bandwidth', 'spectral_contrast',
-        'spectral_rolloff', 'spectral_flux', 'zero_crossing',
-        'mfcc', 'mel_scale', 'tempo', 'chroma', 'tonnetz'
-    ]
-    process_individual_features(target_features)
+            audio, sources = {}, {}
+            for source in sorted(required):
+                path = mapping[source]
+                y, sr = load_audio(path)
+                if len(y) != SAMPLE_SECONDS * sr:
+                    raise ValueError(f'Expected processed 60s audio: {path}; run sample_audio.py')
+                audio[source] = y[:seconds * sr]
+                sources[source] = dict(path=path.relative_to(root).as_posix(),
+                                       sha256=file_digest(path))
+            cache = {}
+            pending = {}
+            for condition in rows:
+                vectors = []
+                for feature, aware_source in FEATURE_SOURCES.items():
+                    source = baseline_source if condition == 'baseline' else aware_source
+                    key = (source, feature)
+                    if key not in cache:
+                        cache[key] = extract_feature(audio[source], feature)
+                    vectors.append(cache[key])
+                pending[condition] = np.concatenate(vectors)
+            # Atomic paired commit: neither condition nor labels survive partial failure.
+            for condition in rows:
+                rows[condition].append(pending[condition])
+            labels.append(song_id.split('_')[1])
+            ids.append(song_id)
+            records.append(dict(song_id=song_id, sources=sources))
+        except Exception as exc:
+            failures.append(dict(song_id=song_id, error=str(exc)))
+    output.mkdir(parents=True, exist_ok=True)
+    metadata = dict(schema=SCHEMA_VERSION, sample_rate=TARGET_SAMPLE_RATE,
+                    seconds=seconds, scaled=False, baseline_source=baseline_source,
+                    feature_sources=FEATURE_SOURCES,
+                    variant_policy='lexicographically_first_relative_path',
+                    discovered_song_count=len(selected), excluded_song_count=len(failures),
+                    complete_song_count=len(ids),
+                    samples=records, excluded=failures)
+    (output / 'source_manifest.json').write_text(json.dumps(metadata, indent=2), encoding='utf-8')
+    if not ids:
+        raise ValueError('No complete paired samples; see source_manifest.json')
+    manifest_hash = file_digest(output / 'source_manifest.json')
+    for condition, vectors in rows.items():
+        np.savez_compressed(output / f'{condition}.npz', X=np.asarray(vectors),
+                            y=np.asarray(labels), song_id=np.asarray(ids),
+                            feature_names=np.asarray(FEATURE_NAMES),
+                            metadata=json.dumps({**{k: v for k, v in metadata.items()
+                                                    if k not in ('samples', 'excluded')},
+                                                 'condition': condition,
+                                                 'source_manifest_sha256': manifest_hash}))
+    return len(ids), len(failures)

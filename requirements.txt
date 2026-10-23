@@ -1,0 +1,6 @@
+# Portfolio runtime; not a reconstruction of the 2025 environment.
+librosa==0.11.0
+numpy>=1.26,<3
+scikit-learn>=1.4,<2
+soundfile>=0.12,<1
+matplotlib>=3.8,<4

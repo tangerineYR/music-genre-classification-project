@@ -1,81 +1,27 @@
-class CreateDataset:
-    # Path of Resource Files
-    DIRECTORY = r"C:\Users\dbfl0\OneDrive\Desktop\세종대\3-1\창의학기제\Project\sepotify\Sepotify_Resource"
-
-    # Sampling Rate (Hz)
-    SAMPLING_RATE = 22050
-
-    # Frame Size (Samples)
-    FRAME_SIZE = 2048
-
-    # Hop Size (Samples)
-    HOP_SIZE = 512
-
-    # Number of MFCC Coefficients
-    MFCC_SIZE = 13
-
-    # Number of Chroma Coefficients
-    CHROMA_SIZE = 12
-
-    # Number of Mel-Scale Coefficients
-    MEL_SCALE_SIZE = 10
-
-    # Tonal Centroid Size
-    TONNETZ_SIZE = 6
-
-    # Name of Genres
-    Genres = ['Ballade', 'Dance', 'Hiphop', 'RnB', 'Rock', 'Trot']
-
-    # 특징명 리스트
-    Feature_Names = [
-        # Timbral Texture Features (8개)
-        'meanSpecCentroid', 'stdSpecCentroid',
-        'meanSpecBandwidth', 'stdSpecBandwidth',
-        'meanSpecContrast', 'stdSpecContrast',
-        'meanSpecRolloff', 'stdSpecRolloff',
-        'meanSpecFlux', 'stdSpecFlux',
-
-        # Zero Crossing Rate (2개)
-        'meanZCR', 'stdZCR',
-
-        # MFCC (13개 계수)
-        *[f'meanMFCC_{i:02d}' for i in range(1,14)],
-        *[f'stdMFCC_{i:02d}' for i in range(1,14)],
-
-        # Mel Spectrogram (10개)
-        *[f'meanMelScale_{i:02d}' for i in range(1,11)],
-        *[f'stdMelScale_{i:02d}' for i in range(1,11)],
-
-        # Rhythmic Content Features (2개)
-        'meanTempo', 'stdTempo',
-    
-        # Chroma STFT (12개)
-        *[f'meanChromaSTFT_{i:02d}' for i in range(1,13)],
-        *[f'stdChromaSTFT_{i:02d}' for i in range(1,13)],
-    
-        # Tonnetz (6개)
-        *[f'meanTonnetz_{i:02d}' for i in range(1,7)],
-        *[f'stdTonnetz_{i:02d}' for i in range(1,7)],
-    ]
-
-    # 폴더-특징 매핑 시스템
-    FEATURE_MAP = {
-        # 음색 관련 (Cover_Timbre)
-        'spectral_centroid': {'prefix': 'Cover_Timbre', 'stats': ['mean', 'std']},
-        'spectral_bandwidth': {'prefix': 'Cover_Timbre', 'stats': ['mean', 'std']},
-        'spectral_contrast': {'prefix': 'Cover_Timbre', 'stats': ['mean', 'std']},
-        'spectral_rolloff': {'prefix': 'Cover_Timbre', 'stats': ['mean', 'std']},
-        'spectral_flux': {'prefix': 'Cover_Rhythm', 'stats': ['mean', 'std']},
-        'zero_crossing': {'prefix': 'Cover_Timbre', 'stats': ['mean', 'std']},
-        'mfcc': {'prefix': 'Cover_Timbre', 'stats': ['mean', 'std']},
-        'mel_scale': {'prefix': 'Cover_Timbre', 'stats': ['mean', 'std']},
-    
-        # 리듬 관련 (Cover_Rhythm)
-        'tempo': {'prefix': 'Cover_Rhythm', 'stats': ['mean', 'std']},
-    
-        # 악기 특성 (Cover_Instrument)
-        'chroma': {'prefix': 'Cover_Instrument', 'stats': ['mean', 'std']},
-    
-        # 조성 특성 (Cover_Genre)
-        'tonnetz': {'prefix': 'Cover_Genre', 'stats': ['mean', 'std']}
-    }
+"""Historical feature/source choices; portfolio execution defaults (see docs/lineage.md)."""
+TARGET_SAMPLE_RATE = 16000
+SAMPLE_SECONDS = 60
+FRAME_SIZE = 2048
+HOP_SIZE = 512
+RANDOM_STATE = 42
+GMM_PARAMS = dict(n_components=7, covariance_type='diag', max_iter=400,
+                  random_state=RANDOM_STATE, init_params='kmeans')
+# Insertion order is the feature vector order. Preserve the project's mapping.
+FEATURE_SOURCES = {
+    'spectral_centroid': 'Cover_Timbre',
+    'spectral_bandwidth': 'Cover_Timbre',
+    'spectral_contrast': 'Cover_Timbre',
+    'spectral_rolloff': 'Cover_Timbre',
+    'spectral_flux': 'Cover_Rhythm',
+    'zero_crossing': 'Cover_Timbre',
+    'mfcc': 'Cover_Timbre',
+    'mel_scale': 'Cover_Timbre',
+    'tempo': 'Cover_Rhythm',
+    'chroma': 'Cover_Instrument',
+    'tonnetz': 'Cover_Genre',
+}
+FEATURE_SIZES = dict(zip(FEATURE_SOURCES, [1, 1, 1, 1, 1, 1, 13, 10, 1, 12, 6]))
+FEATURE_NAMES = [f'{stat}_{feature}_{i + 1:02d}'
+                 for feature, size in FEATURE_SIZES.items()
+                 for i in range(size) for stat in ('mean', 'std')]
+SCHEMA_VERSION = 'portfolio-96d-v1'
