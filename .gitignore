@@ -2,3 +2,14 @@
 *.wav
 *.npz
 *.pkl
+*.mp3
+*.flac
+*.ogg
+*.m4a
+*.aif
+*.aiff
+__pycache__/
+.venv/
+*.egg-info/
+data/
+artifacts/
