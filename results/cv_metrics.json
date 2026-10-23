@@ -1235,9 +1235,9 @@
         ]
       }
     ],
-    "file_inventory_sha256": "546feb6a152f77a21ba3051fcc367246d2a792c91159e4c0ecb88dc713cde462"
+    "file_inventory_sha256": "74a4195b1cc5da1a4bfe55e110c007b08f45b9e5128a69c5a5f76c916517f659"
   },
-  "dataset_inventory_sha256": "442d34d5f9b2520a29e93252b750d268a367fbf80e20174ca7e0dbe0a4b68e91",
-  "file_inventory_sha256": "546feb6a152f77a21ba3051fcc367246d2a792c91159e4c0ecb88dc713cde462",
-  "published_inventory_sha256": "3c6513b08baa230e71feb9e7264461b51567715a05d185c2a3970d8ab08e8713"
+  "dataset_inventory_sha256": "526067aeba11540be01386efe8b48af785be99b2d90af0bbeaaa6f998a25cfec",
+  "file_inventory_sha256": "74a4195b1cc5da1a4bfe55e110c007b08f45b9e5128a69c5a5f76c916517f659",
+  "published_inventory_sha256": "c1b4330b2db8ea94d1477eeb2846a0aa208aee28f08e24025aec8be74ea44bac"
 }

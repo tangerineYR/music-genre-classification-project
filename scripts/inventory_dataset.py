@@ -70,7 +70,7 @@ def write_aggregate(rows, output):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     with (output / 'dataset_inventory.csv').open('w', newline='', encoding='utf-8') as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(aggregates[0]))
+        writer = csv.DictWriter(handle, fieldnames=list(aggregates[0]), lineterminator='\n')
         writer.writeheader()
         writer.writerows(aggregates)
 
@@ -130,7 +130,7 @@ def inventory(root, output):
                    complete_song_ids=cohort, excluded=excluded)
     output.mkdir(parents=True, exist_ok=True)
     with (output/'dataset_inventory.csv').open('w',newline='',encoding='utf-8') as f:
-        writer=csv.DictWriter(f,fieldnames=list(rows[0]));writer.writeheader();writer.writerows(rows)
+        writer=csv.DictWriter(f,fieldnames=list(rows[0]),lineterminator='\n');writer.writeheader();writer.writerows(rows)
     summary['file_inventory_sha256']=file_digest(output/'dataset_inventory.csv')
     (output/'dataset_inventory.json').write_text(json.dumps(summary,indent=2),encoding='utf-8')
     print(json.dumps({k:v for k,v in summary.items() if k not in ('complete_song_ids','excluded')},indent=2))
