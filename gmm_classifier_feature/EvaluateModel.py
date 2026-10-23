@@ -2,12 +2,16 @@
 import csv
 import importlib.metadata
 import json
+import platform
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 import numpy as np
 from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
 from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import MinMaxScaler
-from .config import FEATURE_NAMES, GMM_PARAMS, RANDOM_STATE, SCHEMA_VERSION, TARGET_SAMPLE_RATE
+from .config import (FEATURE_NAMES, FEATURE_SOURCES, GMM_PARAMS, RANDOM_STATE,
+                     SCHEMA_VERSION, TARGET_SAMPLE_RATE, SAMPLE_SECONDS)
 from .GMM_Classification import train_gmm_models, predict_with_gmms
 from .CreateFeatureDataset import file_digest
 
@@ -63,7 +67,7 @@ def write_csv(path, rows):
         writer.writerows(rows)
 
 
-def evaluate(baseline_path, feature_aware_path, output_dir):
+def evaluate(baseline_path, feature_aware_path, output_dir, inventory_path=None):
     datasets = {name: load_dataset(path) for name, path in
                 [('baseline', baseline_path), ('feature_aware', feature_aware_path)]}
     baseline, aware = datasets.values()
@@ -75,6 +79,17 @@ def evaluate(baseline_path, feature_aware_path, output_dir):
             raise ValueError(f'Paired provenance mismatch: {key}')
     if not np.array_equal(baseline['ids'], aware['ids']) or not np.array_equal(baseline['y'], aware['y']):
         raise ValueError('Both experiments must contain identical ordered songs and labels')
+    inventory = None
+    if inventory_path is not None:
+        inventory = json.loads(Path(inventory_path).read_text(encoding='utf-8'))
+        expected = dict(baseline_source='Cover_Timbre', seconds=SAMPLE_SECONDS,
+                        feature_sources=FEATURE_SOURCES)
+        if any(baseline['metadata'].get(key) != value for key, value in expected.items()):
+            raise ValueError('Historical evaluation requires Cover_Timbre, 60s and canonical mapping')
+        if sorted(baseline['ids'].tolist()) != sorted(inventory['complete_song_ids']):
+            raise ValueError('Feature songs differ from the audited complete-case cohort')
+        if inventory['cross_song_duplicate_file_count']:
+            raise ValueError('Cross-song duplicate audio requires review before song-level CV')
     indices = balanced_indices(baseline['y'], baseline['ids'])
     y, ids = baseline['y'][indices], baseline['ids'][indices]
     classes, counts = np.unique(y, return_counts=True)
@@ -102,6 +117,15 @@ def evaluate(baseline_path, feature_aware_path, output_dir):
     output.mkdir(parents=True, exist_ok=True)
     original_classes, original_counts = np.unique(baseline['y'], return_counts=True)
     metrics = dict(status='measured', protocol='portfolio_refactoring', n_splits=10,
+                   evaluation_date=datetime.now(ZoneInfo('Asia/Seoul')).date().isoformat(),
+                   cv=dict(type='StratifiedKFold', n_splits=10, shuffle=True, random_state=RANDOM_STATE),
+                   feature_dimension=len(FEATURE_NAMES),
+                   sample_rate=baseline['metadata']['sample_rate'],
+                   feature_seconds=baseline['metadata']['seconds'],
+                   baseline_source=baseline['metadata']['baseline_source'],
+                   feature_source_mapping=baseline['metadata']['feature_sources'],
+                   preprocessing=dict(scaler='MinMaxScaler', fit_scope='training_fold_only',
+                                      validation='transform_only'),
                    random_state=RANDOM_STATE, gmm=GMM_PARAMS,
                    balancing='deterministic undersampling to minimum class count before CV',
                    original_class_counts=dict(zip(original_classes.tolist(), original_counts.tolist())),
@@ -114,13 +138,36 @@ def evaluate(baseline_path, feature_aware_path, output_dir):
                    metrics=summaries, classes=classes.tolist(), confusion_matrices=matrices,
                    validation_song_ids={str(i): ids[validation].tolist()
                                         for i, (_, validation) in enumerate(splits, 1)})
+    metrics['versions'].update(python=platform.python_version(),
+                              scipy=importlib.metadata.version('scipy'),
+                              numba=importlib.metadata.version('numba'))
+    metrics['delta'] = {metric: summaries[1][f'{metric}_mean'] - summaries[0][f'{metric}_mean']
+                        for metric in ('accuracy', 'macro_f1')}
+    metrics['paired_fold_differences'] = [
+        dict(fold=i+1, **{metric: all_rows[i+10][metric] - all_rows[i][metric]
+                         for metric in ('accuracy', 'macro_f1')}) for i in range(10)]
+    if inventory is not None:
+        metrics.update(historical_dataset=True,
+                       dataset_scope='complete-case historical 60-second dataset',
+                       discovered_song_count=inventory['discovered_song_count'],
+                       complete_song_count=inventory['complete_song_count'],
+                       excluded_song_count=inventory['excluded_song_count'],
+                       dataset_audit={key: value for key, value in inventory.items()
+                                      if key != 'complete_song_ids'},
+                       dataset_inventory_sha256=file_digest(inventory_path),
+                       file_inventory_sha256=inventory['file_inventory_sha256'])
+        if (output / 'dataset_inventory.csv').exists():
+            metrics['published_inventory_sha256'] = file_digest(output / 'dataset_inventory.csv')
     (output / 'cv_metrics.json').write_text(json.dumps(metrics, indent=2), encoding='utf-8')
     write_csv(output / 'fold_metrics.csv', all_rows)
     write_csv(output / 'feature_source_ablation.csv', summaries)
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    vmax = np.asarray(list(matrices.values())).max()
     for ax, (name, matrix) in zip(axes, matrices.items()):
-        ConfusionMatrixDisplay(np.asarray(matrix), display_labels=classes).plot(ax=ax, colorbar=False)
-        ax.set_title(name)
+        ConfusionMatrixDisplay(np.asarray(matrix), display_labels=classes).plot(
+            ax=ax, colorbar=False, im_kw={'vmin': 0, 'vmax': vmax})
+        ax.set_title('Single-source Cover_Timbre baseline' if name == 'baseline'
+                     else 'Feature-aware source mapping')
         ax.tick_params(axis='x', labelrotation=45)
     fig.tight_layout()
     fig.savefig(output / 'confusion_matrix.png', dpi=150)

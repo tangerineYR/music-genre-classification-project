@@ -1,6 +1,8 @@
 """Historical feature/source choices and execution defaults (see docs/lineage.md)."""
 TARGET_SAMPLE_RATE = 16000
 SAMPLE_SECONDS = 60
+# Accept small historical segment rounding differences without padding/trimming.
+DURATION_TOLERANCE_SECONDS = 0.01
 FRAME_SIZE = 2048
 HOP_SIZE = 512
 RANDOM_STATE = 42

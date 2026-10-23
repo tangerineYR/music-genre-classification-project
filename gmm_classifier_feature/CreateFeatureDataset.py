@@ -5,7 +5,8 @@ from pathlib import Path
 import numpy as np
 from .audio import audio_files, load_audio
 from .config import (FEATURE_SOURCES, FEATURE_NAMES, TARGET_SAMPLE_RATE,
-                     SAMPLE_SECONDS, SCHEMA_VERSION, RANDOM_STATE)
+                     SAMPLE_SECONDS, SCHEMA_VERSION, RANDOM_STATE,
+                     DURATION_TOLERANCE_SECONDS)
 from .Utilities import extract_feature
 
 
@@ -89,11 +90,12 @@ def build_features(input_dir, output_dir, baseline_source, seconds=60,
             for source in sorted(required):
                 path = mapping[source]
                 y, sr = load_audio(path)
-                if len(y) != SAMPLE_SECONDS * sr:
-                    raise ValueError(f'Expected processed 60s audio: {path}; run sample_audio.py')
-                audio[source] = y[:seconds * sr]
+                if abs(len(y) / sr - SAMPLE_SECONDS) > DURATION_TOLERANCE_SECONDS:
+                    raise ValueError(f'Invalid historical duration: {len(y) / sr:.6f}s; '
+                                     f'{path.relative_to(root).as_posix()}')
+                audio[source] = y if seconds == SAMPLE_SECONDS else y[:seconds * sr]
                 sources[source] = dict(path=path.relative_to(root).as_posix(),
-                                       sha256=file_digest(path))
+                                       sha256=file_digest(path), duration_seconds=len(y) / sr)
             cache = {}
             pending = {}
             for condition in rows:
@@ -112,10 +114,12 @@ def build_features(input_dir, output_dir, baseline_source, seconds=60,
             ids.append(song_id)
             records.append(dict(song_id=song_id, sources=sources))
         except Exception as exc:
-            failures.append(dict(song_id=song_id, error=str(exc)))
+            failures.append(dict(song_id=song_id, error=str(exc).replace(str(root), '<dataset>')))
+        print(f'{song_id}: {len(ids)} paired songs completed; {len(failures)} excluded', flush=True)
     output.mkdir(parents=True, exist_ok=True)
     metadata = dict(schema=SCHEMA_VERSION, sample_rate=TARGET_SAMPLE_RATE,
                     seconds=seconds, scaled=False, baseline_source=baseline_source,
+                    duration_tolerance_seconds=DURATION_TOLERANCE_SECONDS,
                     feature_sources=FEATURE_SOURCES,
                     variant_policy='lexicographically_first_relative_path', variant=variant,
                     songs_per_genre=songs_per_genre, subset_seed=RANDOM_STATE,

@@ -12,8 +12,9 @@ def main():
     parser.add_argument('--baseline', required=True)
     parser.add_argument('--feature-aware', required=True)
     parser.add_argument('--output', default='results')
+    parser.add_argument('--inventory', help='Historical dataset_inventory.json to verify the complete cohort')
     args = parser.parse_args()
-    print(json.dumps(evaluate(args.baseline, args.feature_aware, args.output), indent=2))
+    print(json.dumps(evaluate(args.baseline, args.feature_aware, args.output, args.inventory), indent=2))
 
 
 if __name__ == '__main__':

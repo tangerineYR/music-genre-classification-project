@@ -11,7 +11,7 @@ def main():
     parser.add_argument('--input', required=True)
     parser.add_argument('--output', required=True)
     parser.add_argument('--baseline-source', required=True,
-                        help='Exact filename source prefix, e.g. Org (original-audio baseline)')
+                        help='Exact filename source prefix; historical baseline: Cover_Timbre')
     parser.add_argument('--seconds', type=int, choices=(5, 60), default=60)
     parser.add_argument('--variant', choices=('A', 'B', 'C'), help='Require this exact Cover variant')
     parser.add_argument('--songs-per-genre', type=int, help='Select this many complete songs per each of six genres before extraction')

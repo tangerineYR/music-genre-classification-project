@@ -32,7 +32,7 @@ class SamplingTests(unittest.TestCase):
         self.assertEqual(len(short), 60 * SR)
         self.assertFalse(short[SR:].any())
 
-    def test_matches_supplied_sampling_algorithm(self):
+    def test_sampling_matches_direct_onset_calculation(self):
         y = np.zeros(70 * SR)
         rng = np.random.default_rng(42)
         for second in (2, 8, 40, 66):
@@ -70,6 +70,33 @@ class FeatureTests(unittest.TestCase):
 
 
 class DatasetTests(unittest.TestCase):
+    def test_historical_nested_lexical_selection_and_duration_rounding(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'audio'
+            for source in ('Timbre', 'Rhythm', 'Instrument', 'Genre'):
+                for variant in ('D', 'B'):
+                    directory = root / 'Rock' / '00001' / f'Cover_{source}_{variant}'
+                    directory.mkdir(parents=True)
+                    (directory / f'Similar_Rock_00001_Cover_{source}_{variant}.wav').touch()
+            mapping = select_sources(root, 'Cover_Timbre')
+            self.assertTrue(all(p.name.endswith('_B.wav') for p in mapping['Similar_Rock_00001'].values()))
+            lengths = []
+            def feature(y, name):
+                lengths.append(len(y))
+                return np.zeros(2 * FEATURE_SIZES[name])
+            with patch('gmm_classifier_feature.CreateFeatureDataset.load_audio',
+                       return_value=(np.ones(60 * SR - 1), SR)), \
+                 patch('gmm_classifier_feature.CreateFeatureDataset.extract_feature', side_effect=feature):
+                self.assertEqual(build_features(root, Path(tmp)/'valid', 'Cover_Timbre'), (1, 0))
+            self.assertEqual(set(lengths), {60 * SR - 1})  # no padding
+            with patch('gmm_classifier_feature.CreateFeatureDataset.load_audio',
+                       return_value=(np.ones(59 * SR), SR)):
+                with self.assertRaisesRegex(ValueError, 'No complete paired samples'):
+                    build_features(root, Path(tmp)/'invalid', 'Cover_Timbre')
+            manifest = json.loads((Path(tmp)/'invalid'/'source_manifest.json').read_text())
+            self.assertIn('Invalid historical duration', manifest['excluded'][0]['error'])
+            self.assertNotIn(str(root), manifest['excluded'][0]['error'])
+
     def test_org_and_strict_a_variant_subset(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

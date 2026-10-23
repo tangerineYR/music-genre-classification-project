@@ -2,13 +2,15 @@
 
 ## Paper → Reference → My Adaptation
 
-1. G. Tzanetakis & P. Cook, *Musical Genre Classification of Audio Signals* (2002).
-   논문 리뷰 자료의 19D는 original paper의 **timbral texture** vector이며,
+1. G. Tzanetakis & P. Cook, [*Musical Genre Classification of Audio Signals* (2002)](https://doi.org/10.1109/TSA.2002.800560).
+   논문의 19D는 **timbral texture** vector이며,
    별도의 rhythmic/pitch feature sets도 설명한다. 현재 프로젝트의 전체 차원이 아니다.
 2. [SamanKhamesian reference implementation](https://github.com/SamanKhamesian/Music-Genre-Classification-of-Audio-Signals).
-   검토한 upstream snapshot: `c315bf9bba83581ac2de618f60b48c945880c985`.
+   검토한 [upstream snapshot](https://github.com/SamanKhamesian/Music-Genre-Classification-of-Audio-Signals/tree/c315bf9bba83581ac2de618f60b48c945880c985).
    이것은 현재 확인한 upstream 버전이지, 2025년 당시 사용한 commit이 확인됐다는 뜻이 아니다.
-   `Source/Utilities.py`, `Source/CreateDataset.py`, `config.py`에서 Librosa 기반 96D,
+   [Utilities](https://github.com/SamanKhamesian/Music-Genre-Classification-of-Audio-Signals/blob/c315bf9bba83581ac2de618f60b48c945880c985/Source/Utilities.py),
+   [CreateDataset](https://github.com/SamanKhamesian/Music-Genre-Classification-of-Audio-Signals/blob/c315bf9bba83581ac2de618f60b48c945880c985/Source/CreateDataset.py),
+   [config](https://github.com/SamanKhamesian/Music-Genre-Classification-of-Audio-Signals/blob/c315bf9bba83581ac2de618f60b48c945880c985/config.py)에서 Librosa 기반 96D,
    5초 load, 22050 Hz, Source import 및 Model 설정을 확인했다.
    Reference의 classifier 선택과 이 프로젝트의 장르별 GMM 구현은 구분한다.
 3. 이 프로젝트의 2025년 adaptation은 AI Hub 한국 음악 데이터, onset-based 60초 공통 샘플,
@@ -19,25 +21,23 @@
 | --- | --- | --- |
 | spectral, MFCC, Mel, tempo, chroma, tonnetz 통계 | Reference Utilities의 expanded 96D | 기존 프로젝트 순서 유지, coefficient별 mean/std 교차 순서와 names 일치, matrix 1회 계산 |
 | 5초 / 22050 Hz | Reference CreateDataset 및 config | 기본 60초 전체 / 16000 Hz로 통일. 5초는 선택적 duration 비교 |
-| Source imports / Main / Model 저장 | Reference 구조에서 유래한 잔재 | package relative import, scripts 3개, dangling persistence 및 Main 제거 |
-| 60초 onset sampling | 2025년 `music_sampling.py`, 주간보고서 3주차, 팀 최종보고서 공통 데이터 설명 | Windows 경로 제거, CLI/재귀 탐색/manifest/mono resampling 통합 |
-| feature별 source | 주간보고서 7주차(2025.05.05–05.11), 기존 config FEATURE_MAP | mapping 유지, lexical variant 선택 및 source hash 기록 |
-| 장르별 GMM 및 고정 설정 | 주간보고서 6주차, 기존 GMM_Classification | 7 / diag / 400 / 42 / kmeans 고정. 새 탐색 없음 |
-| 장르별 sample 수 동일화 | 주간보고서 6주차 | 최소 class count로 seed 42 deterministic undersampling. 구체 seed/선택 알고리즘은 2026년에 명시 |
-| 10-fold CV | 기존 EvaluateModel, 주간보고서 8주차, 최종보고서 | fold 내부 scaler fit, 동일 곡·fold ablation, macro F1·provenance 추가 |
+| Source imports / Main / Model 저장 | Reference 구조와 historical code | package relative import, 실행 CLI, dangling persistence 및 Main 제거 |
+| 60초 sampling | [historical README][historical-readme]의 비트 변화 최고점 기준 1분 설명 | 현재 sampling 구현은 [audio.py](../gmm_classifier_feature/audio.py). Historical WAV 평가에서는 실행하지 않음 |
+| feature별 source | [historical config][historical-config]의 FEATURE_MAP | mapping 유지, lexical variant 선택 및 source hash 기록 |
+| 장르별 GMM 및 고정 설정 | [historical GMM_Classification][historical-gmm] | 7 / diag / 400 / 42 / kmeans 고정. 새 탐색 없음 |
+| 장르별 sample 수 동일화 | [현재 balanced_indices](../gmm_classifier_feature/EvaluateModel.py) | 최소 class count로 seed 42 deterministic undersampling. 구체 선택 알고리즘은 2026년 protocol |
+| 10-fold CV | [historical EvaluateModel][historical-evaluate] | fold 내부 scaler fit, 동일 곡·fold ablation, macro F1·provenance 추가 |
 
-## Sampling restoration and newly specified edge cases
+## Historical segment와 현재 sampling 구현
 
-2025년 `music_sampling.py`의 핵심 동작을 보존한다:
-`librosa.load(sr=16000)` → `onset_detect(backtrack=True)` →
-`onset_strength(aggregate=np.median)`를 detected frame에서 비교 → 최대 강도 시점부터
-60초 → 뒤가 부족하면 마지막 60초. FRAME hop은 기존 Librosa default인 512이다.
-각 source 파일은 원래 코드처럼 독립적으로 sampling한다(서로 시간 정렬한 것이 아니다).
+[Historical README][historical-readme]에는 비트 변화 최고점 기준 1분 sampling이 설명되어 있다.
+현재 [audio.py](../gmm_classifier_feature/audio.py)의 sampling 함수는 16 kHz load,
+backtracked onset과 median onset strength, 최대 강도 시점 이후 60초, 뒤가 부족하면 마지막
+60초를 사용한다. Onset이 없으면 처음부터, 짧으면 오른쪽 zero padding하는 예외 처리는
+2026년 구현이다. 이 구현의 세부 동작 전부를 historical README만으로 입증할 수는 없다.
 
-2026년에 추가한 예외 처리: onset이 없으면 처음부터, 60초 미만이면 오른쪽 zero padding,
-빈/비정상 음원은 오류, 출력은 mono 16 kHz PCM16 WAV. 원본은 짧은 음원을 그대로 저장하고
-onset이 없으면 argmax에서 실패할 수 있었으므로 이 edge case를 historical 동작으로 주장하지 않는다.
-정수 frame/sample 연산으로 60초 길이를 보장하며 원본 시간→정수 변환의 반올림 차이는 최대 1 sample이다.
+이번 평가는 이미 생성된 historical WAV를 대상으로 하므로 sampling 함수를 실행하지 않는다.
+각 source의 정확한 시작 timestamp가 기록되어 있지 않아 source 간 시간 정렬을 보장하지 않는다.
 
 ## Exact feature schema
 
@@ -63,13 +63,23 @@ std는 singleton 통계이므로 0이다. 시간별 tempo 추정이라는 새 fe
 
 ## Evaluation interpretation
 
-A는 원본 `Org`에서 모든 특징을 추출한다. B는 위 mapping의 A variant를 쓴다.
-두 조건의 모든 특징이 성공한 곡만 함께 commit한다. 곡 ID는 `Similar_<genre>_<id>`이며
-동일 곡의 variant를 별도 sample로 취급하지 않는다. 누락/실패 곡은 manifest에 기록한다.
-source prefix는 token 단위로 일치시킨다. `--variant A`는 A만 허용하며 중복 경로는 사전순 첫 파일을 선택한다.
-`--songs-per-genre 50`은 여섯 장르에서 완전한 source 집합을 가진 50곡씩을 추출 전에 선택한다.
-이 subset과 명시적인 A variant 선택은 2026년에 추가한 평가 절차이며 2025년 실험 조건이 아니다.
-이는 재현성 정책이며 특정 variant가 가장 좋다는 주장이 아니다.
+현재 historical dataset에는 `Org`가 없다. 비교는 **Single-source Cover_Timbre baseline
+vs feature-aware source mapping**이다. A는 `Cover_Timbre` 한 음원에서 96개 특징을 모두
+추출하며, B는 위 표의 mapping을 사용한다. 네 required source family가 모두 존재하고
+선택된 파일이 정상 decode·duration 검증을 통과한 모든 곡을 추출한다. Tempo와 Arrangement
+source family는 inventory에 포함하지만 현재 평가에는 사용하지 않는다.
+
+곡 ID는 `Similar_<genre>_<id>`이며 동일 곡의 variant를 별도 sample로 취급하지 않는다.
+source prefix는 token 단위로 일치시키며, 동일 family에서는 dataset-relative path 사전순
+첫 matching file을 선택한다. 성능에 따라 variant를 선택하지 않는다. 선택된 경로와 SHA-256,
+누락·실패 사유를 manifest에 남긴다. 이 deterministic selection은 2026년 재현성 정책이며
+특정 variant가 우수하다는 주장이 아니다. 이번 전체 historical 평가에는 variant 제한이나
+장르별 사전 subset 옵션을 적용하지 않는다.
+
+2025년 생성된 sampled WAV를 그대로 읽고 onset sampling을 반복하지 않는다. Feature
+extraction의 representation만 `load_audio()`로 mono 16 kHz에 통일한다. 60초에서 10 ms 이내의
+길이 차이는 원래 길이 그대로 허용하며 padding이나 구간 재선택을 하지 않는다.
+그 이상의 차이, 빈 데이터, 비유한 값, decode 실패는 오류로 기록한다.
 
 동일 complete-case cohort를 class별 최소 수로 undersampling한 뒤, 같은 StratifiedKFold
 (10, shuffle=True, seed=42)를 두 조건에 적용한다. 따라서 평가는 원 데이터의 자연 발생
@@ -82,14 +92,22 @@ Accuracy와 macro F1의 fold mean ± population std(ddof=0), convergence 상태�
 5초 옵션은 **60초 onset sample의 첫 5초**를 사용하는 duration ablation이다. 원본 reference의
 원천 파일 첫 5초 / 22050 Hz 실행을 그대로 재현한 실험이라고 표현하지 않는다.
 
-## Contribution to Team Final Model (separate context)
+각 Cover source는 2025년에 독립적으로 sampling되어 정확히 같은 timestamp 구간이라고
+보장할 수 없다. 결과는 **historical single-source pipeline과 feature-aware pipeline의
+paired comparison**이며 source type의 causal effect가 아니다. 평가 모집단은 required source가
+모두 존재하는 2025 historical complete-case cohort이며 AI Hub 전체 benchmark가 아니다.
 
-주간보고서 10주차는 개인 GMM 작업 이후 팀 SuCo-HRNE 모델의 repeat & thumbs 제거와
-구간별 평균·표준편차 도입을 기록한다. 이는 이 repository GMM의 성능 개선으로 포함하지 않는다.
-팀 최종보고서의 **99.08%**는 여러 팀원의 개선을 합친 팀 최종 모델 결과이며 개인 GMM accuracy가 아니다.
+## 공개 코드 근거
 
-## 근거 자료
+Historical source mapping, GMM 설정, 10-fold CV는 commit
+[`e3fecc8`](https://github.com/tangerineYR/music-genre-classification-project/tree/e3fecc8cbce09e85479f3bf05dd6bbd3f1e95ed4)의
+코드로 확인할 수 있다. 현재 96D 정의는 [config.py](../gmm_classifier_feature/config.py)와
+[Utilities.py](../gmm_classifier_feature/Utilities.py), paired protocol은
+[EvaluateModel.py](../gmm_classifier_feature/EvaluateModel.py)를 따른다.
+2026년 재현성 수정과 실측 결과를 2025년 구현·성능으로 소급하지 않는다.
+별도 팀 모델의 성능은 이 저장소 GMM의 성능 근거에 포함하지 않는다.
 
-2025년 `music_sampling.py`, 황유리 2025-1 주간학습보고서(3/6/7/8/10주차),
-팀 최종결과보고서, 논문 리뷰 발표자료 및 repository commit `e3fecc8`의 코드를 기준으로
-연구 의도와 구현을 구분한다. 2026년의 재현성 수정과 subset 평가 절차는 2025년 구현으로 소급하지 않는다.
+[historical-readme]: https://github.com/tangerineYR/music-genre-classification-project/blob/e3fecc8cbce09e85479f3bf05dd6bbd3f1e95ed4/README.md
+[historical-config]: https://github.com/tangerineYR/music-genre-classification-project/blob/e3fecc8cbce09e85479f3bf05dd6bbd3f1e95ed4/gmm_classifier_feature/config.py
+[historical-gmm]: https://github.com/tangerineYR/music-genre-classification-project/blob/e3fecc8cbce09e85479f3bf05dd6bbd3f1e95ed4/gmm_classifier_feature/GMM_Classification.py
+[historical-evaluate]: https://github.com/tangerineYR/music-genre-classification-project/blob/e3fecc8cbce09e85479f3bf05dd6bbd3f1e95ed4/gmm_classifier_feature/EvaluateModel.py

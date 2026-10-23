@@ -33,7 +33,7 @@ def sample_audio(y, sr=TARGET_SAMPLE_RATE):
     length = SAMPLE_SECONDS * sr
     if len(y) <= length:
         return np.pad(y, (0, length - len(y))), 0
-    # Preserve supplied music_sampling.py: backtracked onsets, median strength.
+    # Backtrack onsets and compare median onset strength at detected frames.
     onsets = librosa.onset.onset_detect(y=y, sr=sr, hop_length=HOP_SIZE, backtrack=True)
     strength = librosa.onset.onset_strength(y=y, sr=sr, hop_length=HOP_SIZE, aggregate=np.median)
     start = int(onsets[np.argmax(strength[onsets])] * HOP_SIZE) if len(onsets) else 0
